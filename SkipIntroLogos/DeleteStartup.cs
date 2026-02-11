@@ -1,45 +1,28 @@
-﻿using System;
-using BepInEx;
+﻿using BepInEx;
+using HarmonyLib;
 
 namespace SkipIntroLogos
 {
-	using UnityEngine;
-
-	[BepInPlugin("org.bepinex.plugins.humanfallflat.skipintrologos", "Skip Intro Logos", "1.0.0.0")]
+	[BepInPlugin("org.bepinex.plugins.humanfallflat.skipintrologos", "Skip Intro Logos", "2.0.0.0")]
 	[BepInProcess("Human.exe")]
 	class DeleteStartup : BaseUnityPlugin
 	{
-		private void Start()
+		private void Awake()
 		{
-			base.StartCoroutine(this.SkipStartupExperience());
+			Harmony.CreateAndPatchAll(typeof(DeleteStartup)); // aplies the [HarmonyPrefix] method written down below once this plugin loads
 		}
 
-		private System.Collections.IEnumerator SkipStartupExperience()
+		[HarmonyPatch(typeof(StartupExperienceController), "PlayStartupExperience")]
+		[HarmonyPrefix]
+		private static bool SkipStartupExperience()
 		{
-			// use built-in "SkipStartupExperience" intended for accepting invites, but pass "null" so that it goes straight to menu!
-			while (!StartupExperienceController.instance || !MenuCameraEffects.instance)
-			{
-				yield return null;
-			}
-			yield return null;
-			yield return null;
-			yield return null;
-			StartupExperienceController.instance.SkipStartupExperience(null);
-
-			// for aesthetic
+			// patch PlayStartupExperience() to skip the "startup experience" (intro logos and music) instead of running the original code
+			StartupExperienceController.instance.SkipStartupExperience(null); // this method expects a multiplayerServer as an argument, but accepts "null" as well, allowing us to easily skip the intro logos!
+			// below 2 lines are for aesthetic -- looks better than the screen suddenly flashing from black to the main menu
 			MenuCameraEffects.instance.BlackOut();
 			StartupExperienceController.instance.FadeOutDim();
 
-			// get rid of intro music
-			while (!IntroDrones.instance)
-			{
-				yield return null;
-			}
-			IntroDrones ins = IntroDrones.instance;
-			ins.sound.Pause();
-			ins.sound.Stop();
-			IntroDrones.instance = null;
-			UnityEngine.Object.Destroy(ins.gameObject);
+			return false; // returning false skips the original code
 		}
 	}
 }
