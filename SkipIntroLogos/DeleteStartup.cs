@@ -27,6 +27,7 @@ namespace SkipIntroLogos
         private static ManualLogSource _log;
         private static int _skipLogged;
         private static int _failureLogged;
+        private static StartupExperienceUI _skippedStartupUi;
 
         public override void Load()
         {
@@ -40,15 +41,18 @@ namespace SkipIntroLogos
                 }
 
                 var target = AccessTools.DeclaredMethod(typeof(StartupRoutine), nameof(StartupRoutine.MoveNext), Type.EmptyTypes);
+                var menuFocus = AccessTools.DeclaredMethod(typeof(MainMenu), nameof(MainMenu.OnGotFocus), Type.EmptyTypes);
                 var harmony = new Harmony(PluginGuid);
+                harmony.Patch(menuFocus,
+                    postfix: new HarmonyMethod(typeof(DeleteStartup), nameof(RestoreMainMenuLogo)));
                 harmony.Patch(target,
                     prefix: new HarmonyMethod(typeof(DeleteStartup), nameof(SkipLogoStates)),
                     finalizer: new HarmonyMethod(typeof(DeleteStartup), nameof(RestoreLogoTiming)));
-                Log.LogInfo("Intro skip registered for StartupExperienceRoutine.MoveNext (test 4).");
+                Log.LogInfo("Intro skip and main menu logo handoff registered (test 4-1).");
             }
             catch (Exception exception)
             {
-                Log.LogError($"Intro skip setup failed (test 4). {exception}");
+                Log.LogError($"Intro skip setup failed (test 4-1). {exception}");
             }
         }
 
@@ -84,7 +88,8 @@ namespace SkipIntroLogos
                 var controller = __instance.__4__this;
                 var camera = controller?.cameraEffects;
                 var drones = controller?.drones;
-                if (camera == null || drones == null || __instance._startupUI_5__2 == null)
+                var startupUi = __instance._startupUI_5__2;
+                if (camera == null || drones == null || startupUi == null)
                 {
                     LogSkipFailure("Startup camera, drones or UI missing.");
                     return;
@@ -114,15 +119,51 @@ namespace SkipIntroLogos
                 __state = (controller, controller.offsetTime);
                 controller.offsetTime = (float)(dronesTime - PressAnythingDronesTime - 1d);
                 __instance.__1__state = AfterHumanLogoDelay;
+                _skippedStartupUi = startupUi;
 
                 if (Interlocked.Exchange(ref _skipLogged, 1) == 0)
                 {
-                    _log.LogInfo("Intro logo states bypassed; resuming native startup at state 7 (test 4).");
+                    _log.LogInfo("Intro logo states bypassed; resuming native startup at state 7 (test 4-1).");
                 }
             }
             catch (Exception exception)
             {
                 LogSkipFailure(exception.ToString());
+            }
+        }
+
+        private static void RestoreMainMenuLogo(MainMenu __instance)
+        {
+            var startupUi = _skippedStartupUi;
+            if (startupUi == null)
+            {
+                return;
+            }
+
+            _skippedStartupUi = null;
+            try
+            {
+                if (startupUi != StartupExperienceUI.instance || !startupUi.gameObject.activeInHierarchy)
+                {
+                    return;
+                }
+
+                // OnGotFocus and Update hide MainMenu.logo while the startup UI is active.
+                // Run the game's usual logo handoff when this menu first receives focus.
+                __instance.RemoveStartExperienceLogo();
+                var logo = __instance.logo;
+                if (logo != null && logo.activeSelf && !startupUi.gameObject.activeInHierarchy)
+                {
+                    _log.LogInfo("Main menu title logo enabled by native startup UI handoff (test 4-1).");
+                }
+                else
+                {
+                    _log.LogWarning("Main menu logo handoff did not reach the expected UI state (test 4-1).");
+                }
+            }
+            catch (Exception exception)
+            {
+                _log.LogWarning($"Main menu logo handoff failed (test 4-1). {exception}");
             }
         }
 
@@ -138,7 +179,7 @@ namespace SkipIntroLogos
         {
             if (Interlocked.Exchange(ref _failureLogged, 1) == 0)
             {
-                _log.LogWarning($"Intro skip could not be applied (test 4). {reason}");
+                _log.LogWarning($"Intro skip could not be applied (test 4-1). {reason}");
             }
         }
     }
