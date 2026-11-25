@@ -1,49 +1,32 @@
 # HFF Skip Intro Logos - Microsoft Store
 
-Microsoft Store / Xbox PC port of the Human: Fall Flat **Skip Intro Logos** BepInEx plugin.
+Microsoft Store / Xbox PC port of Permamiss's Human: Fall Flat **Skip Intro Logos** BepInEx plugin. It skips the Curve, No Brakes Games, and startup Human: Fall Flat logos. **Press Anything** still waits for input, and the Human: Fall Flat title logo appears in the main menu.
 
-This repository is a fork of the original Steam plugin by Permamiss. The Microsoft Store port keeps the same basic behavior: it intercepts `StartupExperienceController.PlayStartupExperience()`, skips the startup experience, and transitions to the main menu.
+## Supported environment
 
-## Current status
+- Microsoft Store / Xbox PC (Windows x64)
+- Unity 2019.4.24f1 (IL2CPP)
+- BepInEx 6 IL2CPP x64 (6.0.0-be.793)
+- Analyzed internal build ID in `BuildVersion.txt` is `v169673214`. The player-facing version shown in the game is a separate identifier.
 
-Early test build / development version.
+Before applying patches, the plugin checks the SHA-256 hashes of `GameAssembly.dll`, `global-metadata.dat`, and BepInEx's generated `interop\Assembly-CSharp.dll`. If any hash differs from the analyzed binaries, the plugin leaves the game's normal startup in place. A game or interop update can therefore disable intro skipping.
 
-Target environment:
+## Install
 
-- Human: Fall Flat Microsoft Store / Xbox PC (Windows x64)
-- Unity IL2CPP
-- BepInEx 6 IL2CPP (`6.0.0-be.793` used for development)
-- Unity 2019.4.24f1 / game v1696732 used for initial porting
+With the game closed, place `HFF_SkipIntroLogos_MicrosoftStore.dll` in the game's `BepInEx\plugins` folder, replacing any older copy of this plugin. On startup, check `BepInEx\LogOutput.log` for `Intro logo skip enabled.`
 
 ## Build
 
-The project references DLLs generated/installed by the target game's BepInEx environment. Do not commit those DLLs to this repository.
-
-PowerShell example:
+Use a .NET SDK with the .NET 6 targeting pack. Start the game once with BepInEx to generate the interop assemblies, then run this command from the repository root in PowerShell.
 
 ```powershell
 dotnet build .\SkipIntroLogos\HFF_SkipIntroLogos.csproj -c Release -p:BepInExDir="C:\path\to\BepInEx"
 ```
 
-The required references are read from `BepInEx\core` and `BepInEx\interop`.
+The build reads references from `BepInEx\core` and `BepInEx\interop` and writes the plugin DLL to `SkipIntroLogos\bin\Release`.
 
-## Install for testing
+## Credits and licensing
 
-Copy the built `HFF_SkipIntroLogos_MicrosoftStore.dll` directly into:
+This port preserves the Git history of the original Steam plugin. [Original HFF_SkipIntroLogos by Permamiss](https://github.com/Permamiss/HFF_SkipIntroLogos)
 
-```text
-BepInEx\plugins
-```
-
-For the first test, confirm that:
-
-1. BepInEx reports the plugin as loaded.
-2. The startup logo sequence is skipped.
-3. The game reaches the main menu normally.
-4. The menu remains usable.
-
-## Credits
-
-Original Steam plugin: **Permamiss / HFF_SkipIntroLogos**
-
-This fork contains the Microsoft Store / Xbox PC BepInEx 6 IL2CPP port.
+No license file or redistribution permission was found in the upstream repository.

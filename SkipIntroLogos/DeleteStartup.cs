@@ -48,11 +48,11 @@ namespace SkipIntroLogos
                 harmony.Patch(target,
                     prefix: new HarmonyMethod(typeof(DeleteStartup), nameof(SkipLogoStates)),
                     finalizer: new HarmonyMethod(typeof(DeleteStartup), nameof(RestoreLogoTiming)));
-                Log.LogInfo("Intro skip and main menu logo handoff registered (test 4-1).");
+                Log.LogInfo("Intro logo skip enabled.");
             }
             catch (Exception exception)
             {
-                Log.LogError($"Intro skip setup failed (test 4-1). {exception}");
+                Log.LogError($"Intro skip setup failed. {exception}");
             }
         }
 
@@ -123,7 +123,7 @@ namespace SkipIntroLogos
 
                 if (Interlocked.Exchange(ref _skipLogged, 1) == 0)
                 {
-                    _log.LogInfo("Intro logo states bypassed; resuming native startup at state 7 (test 4-1).");
+                    _log.LogInfo("Startup intro logos skipped.");
                 }
             }
             catch (Exception exception)
@@ -140,6 +140,7 @@ namespace SkipIntroLogos
                 return;
             }
 
+            // Consume the pending handoff before touching UI so later focus events cannot replay it.
             _skippedStartupUi = null;
             try
             {
@@ -154,16 +155,16 @@ namespace SkipIntroLogos
                 var logo = __instance.logo;
                 if (logo != null && logo.activeSelf && !startupUi.gameObject.activeInHierarchy)
                 {
-                    _log.LogInfo("Main menu title logo enabled by native startup UI handoff (test 4-1).");
+                    _log.LogInfo("Main menu title logo restored.");
                 }
                 else
                 {
-                    _log.LogWarning("Main menu logo handoff did not reach the expected UI state (test 4-1).");
+                    _log.LogWarning("Main menu logo handoff did not reach the expected UI state.");
                 }
             }
             catch (Exception exception)
             {
-                _log.LogWarning($"Main menu logo handoff failed (test 4-1). {exception}");
+                _log.LogWarning($"Main menu logo handoff failed. {exception}");
             }
         }
 
@@ -179,7 +180,7 @@ namespace SkipIntroLogos
         {
             if (Interlocked.Exchange(ref _failureLogged, 1) == 0)
             {
-                _log.LogWarning($"Intro skip could not be applied (test 4-1). {reason}");
+                _log.LogWarning($"Intro skip could not be applied. {reason}");
             }
         }
     }
