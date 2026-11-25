@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
@@ -16,24 +17,37 @@ namespace SkipIntroLogos
 
         private Harmony _harmony;
         private static ManualLogSource _log;
+        private static int _startupRoutineLogged;
 
         public override void Load()
         {
             _log = Log;
             _harmony = new Harmony(PluginGuid);
-            RegisterPrefix(nameof(StartupExperienceController.PlayStartupExperience), nameof(SkipStartupExperience));
-            RegisterPrefix(nameof(StartupExperienceController.PlayStartupExperience_SkipSplash), nameof(LogSkipSplash));
+            var controller = typeof(StartupExperienceController);
+            RegisterPrefix(controller, nameof(StartupExperienceController.PlayStartupExperience), nameof(SkipStartupExperience),
+                "StartupExperienceController.PlayStartupExperience()");
+            RegisterPrefix(controller, nameof(StartupExperienceController.PlayStartupExperience_SkipSplash), nameof(LogSkipSplash),
+                "StartupExperienceController.PlayStartupExperience_SkipSplash()");
+
+            // The generated IL2CPP interop assembly sanitizes the native nested type name.
+            var startupRoutine = AccessTools.Inner(controller, "_StartupExperienceRoutine_d__20");
+            RegisterPrefix(startupRoutine, "MoveNext", nameof(LogStartupRoutine),
+                "StartupExperienceController.<StartupExperienceRoutine>d__20.MoveNext()");
 
             Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
         }
 
-        private void RegisterPrefix(string targetName, string prefixName)
+        private void RegisterPrefix(Type targetType, string targetName, string prefixName, string targetLabel)
         {
-            string targetLabel = $"StartupExperienceController.{targetName}()";
-
             try
             {
-                var target = AccessTools.DeclaredMethod(typeof(StartupExperienceController), targetName, Type.EmptyTypes);
+                if (targetType == null)
+                {
+                    Log.LogError($"Harmony Prefix registration failed for {targetLabel}. Target type not found.");
+                    return;
+                }
+
+                var target = AccessTools.DeclaredMethod(targetType, targetName, Type.EmptyTypes);
                 if (target == null)
                 {
                     Log.LogError($"Harmony Prefix registration failed for {targetLabel}. Target method not found.");
@@ -56,6 +70,14 @@ namespace SkipIntroLogos
             catch (Exception exception)
             {
                 Log.LogError($"Harmony Prefix registration failed for {targetLabel}. {exception}");
+            }
+        }
+
+        private static void LogStartupRoutine()
+        {
+            if (Interlocked.Exchange(ref _startupRoutineLogged, 1) == 0)
+            {
+                _log.LogInfo("StartupExperienceController.<StartupExperienceRoutine>d__20.MoveNext() Prefix fired (diagnostic 3).");
             }
         }
 
