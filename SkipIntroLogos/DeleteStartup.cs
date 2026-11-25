@@ -1,28 +1,45 @@
-﻿using BepInEx;
+using BepInEx;
+using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 
 namespace SkipIntroLogos
 {
-	[BepInPlugin("org.bepinex.plugins.humanfallflat.skipintrologos", "Skip Intro Logos", "2.0.0.0")]
-	[BepInProcess("Human.exe")]
-	class DeleteStartup : BaseUnityPlugin
-	{
-		private void Awake()
-		{
-			Harmony.CreateAndPatchAll(typeof(DeleteStartup)); // aplies the [HarmonyPrefix] method written down below once this plugin loads
-		}
+    [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
+    public sealed class DeleteStartup : BasePlugin
+    {
+        public const string PluginGuid = "org.bepinex.plugins.humanfallflat.skipintrologos.microsoftstore";
+        public const string PluginName = "Skip Intro Logos - Microsoft Store";
+        public const string PluginVersion = "0.1.0-pre";
 
-		[HarmonyPatch(typeof(StartupExperienceController), "PlayStartupExperience")]
-		[HarmonyPrefix]
-		private static bool SkipStartupExperience()
-		{
-			// patch PlayStartupExperience() to skip the "startup experience" (intro logos and music) instead of running the original code
-			StartupExperienceController.instance.SkipStartupExperience(null); // this method expects a multiplayerServer as an argument, but accepts "null" as well, allowing us to easily skip the intro logos!
-			// below 2 lines are for aesthetic -- looks better than the screen suddenly flashing from black to the main menu
-			MenuCameraEffects.instance.BlackOut();
-			StartupExperienceController.instance.FadeOutDim();
+        private Harmony _harmony;
 
-			return false; // returning false skips the original code
-		}
-	}
+        public override void Load()
+        {
+            _harmony = new Harmony(PluginGuid);
+            _harmony.PatchAll(typeof(DeleteStartup));
+
+            Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
+        }
+
+        [HarmonyPatch(typeof(StartupExperienceController), nameof(StartupExperienceController.PlayStartupExperience))]
+        [HarmonyPrefix]
+        private static bool SkipStartupExperience(StartupExperienceController __instance)
+        {
+            if (__instance == null)
+            {
+                return true;
+            }
+
+            __instance.SkipStartupExperience(null);
+
+            if (MenuCameraEffects.instance != null)
+            {
+                MenuCameraEffects.instance.BlackOut();
+            }
+
+            __instance.FadeOutDim();
+
+            return false;
+        }
+    }
 }
