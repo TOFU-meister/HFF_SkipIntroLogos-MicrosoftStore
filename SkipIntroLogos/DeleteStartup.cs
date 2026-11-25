@@ -1,10 +1,13 @@
 using System;
-using System.Linq;
+using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
+using UnityEngine;
+using StartupRoutine = StartupExperienceController._StartupExperienceRoutine_d__20;
 
 namespace SkipIntroLogos
 {
@@ -15,96 +18,128 @@ namespace SkipIntroLogos
         public const string PluginName = "Skip Intro Logos - Microsoft Store";
         public const string PluginVersion = "0.1.0-pre";
 
-        private Harmony _harmony;
+        // Resume labels in the verified native MoveNext jump table.
+        private const int WaitingForFirstCameraTransition = 1;
+        private const int WaitingForCurveLogo = 2;
+        private const int AfterHumanLogoDelay = 7;
+        private const double PressAnythingDronesTime = 13.2;
+
         private static ManualLogSource _log;
-        private static int _startupRoutineLogged;
+        private static int _skipLogged;
+        private static int _failureLogged;
 
         public override void Load()
         {
             _log = Log;
-            _harmony = new Harmony(PluginGuid);
-            var controller = typeof(StartupExperienceController);
-            RegisterPrefix(controller, nameof(StartupExperienceController.PlayStartupExperience), nameof(SkipStartupExperience),
-                "StartupExperienceController.PlayStartupExperience()");
-            RegisterPrefix(controller, nameof(StartupExperienceController.PlayStartupExperience_SkipSplash), nameof(LogSkipSplash),
-                "StartupExperienceController.PlayStartupExperience_SkipSplash()");
-
-            // The generated IL2CPP interop assembly sanitizes the native nested type name.
-            var startupRoutine = AccessTools.Inner(controller, "_StartupExperienceRoutine_d__20");
-            RegisterPrefix(startupRoutine, "MoveNext", nameof(LogStartupRoutine),
-                "StartupExperienceController.<StartupExperienceRoutine>d__20.MoveNext()");
-
-            Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
-        }
-
-        private void RegisterPrefix(Type targetType, string targetName, string prefixName, string targetLabel)
-        {
             try
             {
-                if (targetType == null)
+                if (!MatchesAnalyzedFiles())
                 {
-                    Log.LogError($"Harmony Prefix registration failed for {targetLabel}. Target type not found.");
+                    Log.LogWarning("Intro skip disabled: startup binaries differ from the analyzed Store build.");
                     return;
                 }
 
-                var target = AccessTools.DeclaredMethod(targetType, targetName, Type.EmptyTypes);
-                if (target == null)
+                var target = AccessTools.DeclaredMethod(typeof(StartupRoutine), nameof(StartupRoutine.MoveNext), Type.EmptyTypes);
+                var harmony = new Harmony(PluginGuid);
+                harmony.Patch(target,
+                    prefix: new HarmonyMethod(typeof(DeleteStartup), nameof(SkipLogoStates)),
+                    finalizer: new HarmonyMethod(typeof(DeleteStartup), nameof(RestoreLogoTiming)));
+                Log.LogInfo("Intro skip registered for StartupExperienceRoutine.MoveNext (test 4).");
+            }
+            catch (Exception exception)
+            {
+                Log.LogError($"Intro skip setup failed (test 4). {exception}");
+            }
+        }
+
+        private static bool MatchesAnalyzedFiles()
+        {
+            return MatchesHash(Path.Combine(Paths.GameRootPath, "GameAssembly.dll"),
+                       "2061BD0A0C55C84F44AD53E4436440D6FA29BA260AEC3A2268FF93D656503D43")
+                && MatchesHash(Path.Combine(Paths.GameRootPath, "HumanFallFlat_Data", "il2cpp_data", "Metadata", "global-metadata.dat"),
+                       "99D63FEE40BD05FC7B6C2A84F0EA4F17F991D31021DEC32249E95E522D17E81B")
+                && MatchesHash(typeof(StartupExperienceController).Assembly.Location,
+                       "702E5880A92585201078BEB90F7834BB830942ADE9750F26F8371BCFBD7D3D9B");
+        }
+
+        private static bool MatchesHash(string path, string expected)
+        {
+            using var file = File.OpenRead(path);
+            using var hash = SHA256.Create();
+            return Convert.ToHexString(hash.ComputeHash(file)) == expected;
+        }
+
+        private static void SkipLogoStates(StartupRoutine __instance,
+            out (StartupExperienceController Controller, float OffsetTime) __state)
+        {
+            __state = default;
+            try
+            {
+                int state = __instance.__1__state;
+                if (state != WaitingForFirstCameraTransition && state != WaitingForCurveLogo)
                 {
-                    Log.LogError($"Harmony Prefix registration failed for {targetLabel}. Target method not found.");
                     return;
                 }
 
-                var prefix = AccessTools.DeclaredMethod(typeof(DeleteStartup), prefixName);
-                _harmony.Patch(target, prefix: new HarmonyMethod(prefix));
-
-                if (Harmony.GetPatchInfo(target)?.Prefixes.Any(patch =>
-                    patch.owner == PluginGuid && patch.PatchMethod == prefix) == true)
+                var controller = __instance.__4__this;
+                var camera = controller?.cameraEffects;
+                var drones = controller?.drones;
+                if (camera == null || drones == null || __instance._startupUI_5__2 == null)
                 {
-                    Log.LogInfo($"Harmony Prefix registered for {targetLabel}.");
+                    LogSkipFailure("Startup camera, drones or UI missing.");
+                    return;
                 }
-                else
+
+                float dronesTime = drones.dronesTime;
+                if (!float.IsFinite(dronesTime))
                 {
-                    Log.LogError($"Harmony Prefix registration could not be verified for {targetLabel}.");
+                    LogSkipFailure("IntroDrones returned a non-finite playback time.");
+                    return;
+                }
+
+                if (state == WaitingForFirstCameraTransition)
+                {
+                    // Preserve the native one-second camera lead-in and its subsequent transition.
+                    if (dronesTime < 1f)
+                    {
+                        return;
+                    }
+
+                    camera.transitionDuration = 5f;
+                    camera.Transition(1f, Vector2.zero, 0f, 0.7f, 0f, 0f);
+                }
+
+                // State 7 starts the user manager before testing the remaining logo hold.
+                // Move only that deadline into the past and restore the field after this call.
+                __state = (controller, controller.offsetTime);
+                controller.offsetTime = (float)(dronesTime - PressAnythingDronesTime - 1d);
+                __instance.__1__state = AfterHumanLogoDelay;
+
+                if (Interlocked.Exchange(ref _skipLogged, 1) == 0)
+                {
+                    _log.LogInfo("Intro logo states bypassed; resuming native startup at state 7 (test 4).");
                 }
             }
             catch (Exception exception)
             {
-                Log.LogError($"Harmony Prefix registration failed for {targetLabel}. {exception}");
+                LogSkipFailure(exception.ToString());
             }
         }
 
-        private static void LogStartupRoutine()
+        private static void RestoreLogoTiming((StartupExperienceController Controller, float OffsetTime) __state)
         {
-            if (Interlocked.Exchange(ref _startupRoutineLogged, 1) == 0)
+            if (__state.Controller != null)
             {
-                _log.LogInfo("StartupExperienceController.<StartupExperienceRoutine>d__20.MoveNext() Prefix fired (diagnostic 3).");
+                __state.Controller.offsetTime = __state.OffsetTime;
             }
         }
 
-        private static void LogSkipSplash()
+        private static void LogSkipFailure(string reason)
         {
-            _log.LogInfo("StartupExperienceController.PlayStartupExperience_SkipSplash() Prefix fired.");
-        }
-
-        private static bool SkipStartupExperience(StartupExperienceController __instance)
-        {
-            _log.LogInfo("StartupExperienceController.PlayStartupExperience() Prefix fired.");
-
-            if (__instance == null)
+            if (Interlocked.Exchange(ref _failureLogged, 1) == 0)
             {
-                return true;
+                _log.LogWarning($"Intro skip could not be applied (test 4). {reason}");
             }
-
-            __instance.SkipStartupExperience(null);
-
-            if (MenuCameraEffects.instance != null)
-            {
-                MenuCameraEffects.instance.BlackOut();
-            }
-
-            __instance.FadeOutDim();
-
-            return false;
         }
     }
 }
